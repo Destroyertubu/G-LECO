@@ -1975,8 +1975,6 @@ __global__ void decompressFullFileFix(
     int total_elements,
     int partition_size) {
 
-    // --- 优化部分：在共享内存中定义元数据缓存 ---
-    // 用于缓存当前分区元数据的结构体
     struct PartitionMetaCache {
         int32_t model_type;
         int32_t delta_bits;
@@ -1985,12 +1983,9 @@ __global__ void decompressFullFileFix(
         int64_t bit_offset_base;
     };
 
-    // 每个线程块（Block）使用一个共享内存缓存
     __shared__ PartitionMetaCache s_meta;
-    // 用于记录当前缓存的是哪个分区
     __shared__ int s_cached_partition_idx;
 
-    // --- 内核主体逻辑 ---
     int g_idx = threadIdx.x + blockIdx.x * blockDim.x;
     int g_stride = blockDim.x * gridDim.x;
 
@@ -1998,11 +1993,9 @@ __global__ void decompressFullFileFix(
         return;
     }
 
-    // 在循环开始前，由块内第一个线程初始化缓存标记
     if (threadIdx.x == 0) {
-        s_cached_partition_idx = -1; // -1 表示缓存无效
+        s_cached_partition_idx = -1; 
     }
-    // 同步以确保所有线程都看到无效的缓存标记
     __syncthreads();
 
     const int32_t* __restrict__ dev_model_types = compressed_data_on_device->d_model_types;
@@ -2020,10 +2013,7 @@ __global__ void decompressFullFileFix(
             continue; 
         }
 
-        // --- 优化部分：动态缓存检查与更新 ---
-        // 检查当前分区元数据是否已在缓存中
         if (partition_idx != s_cached_partition_idx) {
-            // 如果不在缓存中（缓存失效），则由块内的第一个线程负责从全局内存加载新元数据
             if (threadIdx.x == 0) {
                 s_meta.model_type = dev_model_types[partition_idx];
                 s_meta.delta_bits = dev_delta_bits[partition_idx];
@@ -2033,14 +2023,12 @@ __global__ void decompressFullFileFix(
                     s_meta.theta0 = dev_model_params[partition_idx * 4];
                     s_meta.theta1 = dev_model_params[partition_idx * 4 + 1];
                 }
-                // 更新缓存标记
+
                 s_cached_partition_idx = partition_idx;
             }
-            // **关键**：同步块内所有线程，以确保所有线程都能看到由线程0加载的最新元数据
             __syncthreads();
         }
-        
-        // --- 解压逻辑：从共享内存缓存中读取元数据 ---
+
         int32_t model_type = s_meta.model_type;
         int32_t delta_bits = s_meta.delta_bits;
         int64_t bit_offset_base = s_meta.bit_offset_base;
@@ -2055,7 +2043,6 @@ __global__ void decompressFullFileFix(
                 output_device[idx] = static_cast<T>(0);
             }
         } else {
-            // 从共享内存缓存中读取模型参数
             double pred_double = fma(s_meta.theta1, static_cast<double>(local_idx), s_meta.theta0);
             
             long long delta = 0;
@@ -2723,9 +2710,7 @@ private:
 
 
 private:
-    // 新增方法：将分段长度写入文件
     void writePartitionLengthsToFile(const std::vector<PartitionInfo>& partitions) {
-        // 构建文件名：dataset_name_partition_lengths.txt
         std::string filename = dataset_name_member + "_cpu_var_partition_lengths.txt";
         
         std::ofstream outfile(filename);
@@ -2735,21 +2720,18 @@ private:
             return;
         }
         
-        // 写入头部信息
         outfile << "# CPU Variable-Length Partition Lengths for dataset: " << dataset_name_member << std::endl;
         outfile << "# Total partitions: " << partitions.size() << std::endl;
         outfile << "# Total elements: " << data_host_vec.size() << std::endl;
         outfile << "# Format: partition_index start_idx end_idx length" << std::endl;
         outfile << "#" << std::endl;
         
-        // 写入每个分段的长度
         for (size_t i = 0; i < partitions.size(); i++) {
             int length = partitions[i].end_idx - partitions[i].start_idx;
             outfile << i << " " << partitions[i].start_idx << " " 
                    << partitions[i].end_idx << " " << length << std::endl;
         }
         
-        // 写入统计信息
         int min_length = INT_MAX;
         int max_length = 0;
         long long total_length = 0;
@@ -2786,22 +2768,18 @@ public:
             min_part_size_param(min_size_param), 
             dataset_name_member(dataset_name_param) {
             
-            // 双重确保赋值
             this->dataset_name_member = dataset_name_param;
             
-            // 调试输出
             std::cout << "[DEBUG] VariableLengthPartitioner constructor called" << std::endl;
             std::cout << "[DEBUG]   dataset_name_param = '" << dataset_name_param << "'" << std::endl;
             std::cout << "[DEBUG]   this->dataset_name_member = '" << this->dataset_name_member << "'" << std::endl;
         }
 
-        // 修改 VariableLengthPartitioner 的 partition() 方法，添加调试输出
         std::vector<PartitionInfo> partition() {
             if (data_host_vec.empty()) {
                 return std::vector<PartitionInfo>();
             }
             
-            // 添加调试输出
             std::cout << "[DEBUG] VariableLengthPartitioner::partition() called" << std::endl;
             std::cout << "[DEBUG] dataset_name_member = '" << dataset_name_member << "'" << std::endl;
             
@@ -2856,12 +2834,10 @@ public:
                 }
             }
             
-            // 添加更多调试输出
             std::cout << "[DEBUG] result.size() = " << result.size() << std::endl;
             std::cout << "[DEBUG] result.empty() = " << result.empty() << std::endl;
             std::cout << "[DEBUG] dataset_name_member.empty() = " << dataset_name_member.empty() << std::endl;
-            
-            // 在返回结果之前，写入分段长度到文件
+
             if (!result.empty() && !dataset_name_member.empty()) {
                 std::cout << "[DEBUG] Calling writePartitionLengthsToFile..." << std::endl;
                 writePartitionLengthsToFile(result);
@@ -3200,7 +3176,6 @@ __global__ void createPartitionsFast(
 }
 
 
-// --- 核心优化内核: "一个Block处理一个Partition" ---
 template<typename T>
 __global__ void fitPartitionsBatched_Optimized(
     const T* __restrict__ data,
@@ -3214,13 +3189,10 @@ __global__ void fitPartitionsBatched_Optimized(
     double* __restrict__ costs,
     int num_partitions)
 {
-    // **架构优化**: 每个Block直接通过 blockIdx.x 获取自己的分区ID
     const int pid = blockIdx.x;
     if (pid >= num_partitions) {
         return; // 边界检查
     }
-
-    // 为这个Block内共享的数据声明静态共享内存
     __shared__ double s_theta0;
     __shared__ double s_theta1;
     __shared__ int s_has_overflow_flag;
@@ -3229,7 +3201,6 @@ __global__ void fitPartitionsBatched_Optimized(
     const int end = partition_ends[pid];
     const int n = end - start;
 
-    // --- 阶段1: 检查分区是否为空或存在溢出风险 ---
     if (threadIdx.x == 0) {
         s_has_overflow_flag = false;
     }
@@ -3268,25 +3239,21 @@ __global__ void fitPartitionsBatched_Optimized(
         return;
     }
     
-    // --- 阶段2: 快速线性回归计算 ---
     double sum_x = 0.0, sum_y = 0.0, sum_xx = 0.0, sum_xy = 0.0;
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         double x = static_cast<double>(i);
         double y = static_cast<double>(data[start + i]);
         sum_x += x;
         sum_y += y;
-        // **FMA优化**: 将 x*x + sum_xx 合并为单条 fma 指令
         sum_xx = fma(x, x, sum_xx);
         sum_xy = fma(x, y, sum_xy);
     }
 
-    // 使用共享内存进行高效的块内归约
     sum_x = blockReduceSum(sum_x);
     sum_y = blockReduceSum(sum_y);
     sum_xx = blockReduceSum(sum_xx);
     sum_xy = blockReduceSum(sum_xy);
 
-    // --- 阶段3: 计算模型参数 (仅由线程0完成) ---
     if (threadIdx.x == 0) {
         double dn = static_cast<double>(n);
         // **FMA优化**: dn * sum_xx - sum_x * sum_x
@@ -3307,7 +3274,6 @@ __global__ void fitPartitionsBatched_Optimized(
     }
     __syncthreads();
 
-    // --- 阶段4: 计算最大误差 ---
     double theta0 = theta0_array[pid];
     double theta1 = theta1_array[pid];
     long long local_max_error = 0;
@@ -3322,7 +3288,6 @@ __global__ void fitPartitionsBatched_Optimized(
 
     long long partition_max_error = blockReduceMax(local_max_error);
 
-    // --- 阶段5: 写回最终结果 (仅由线程0完成) ---
     if (threadIdx.x == 0) {
         max_errors[pid] = partition_max_error;
         
@@ -3442,20 +3407,17 @@ public:
         CUDA_CHECK(cudaMalloc(&d_max_errors, h_num_partitions * sizeof(long long)));
         CUDA_CHECK(cudaMalloc(&d_costs, h_num_partitions * sizeof(double)));
         
-        // 定义每个Block的线程数
-        int threads_per_block = 256; // 128 或 256 是一个不错的选择，有利于占用率
 
-        // **架构核心修改**: Grid的大小直接由分区数决定。
-        // 每个分区都获得一个独立的CUDA Block来并行处理。
+        int threads_per_block = 256; 
+
+
         int grid_size = h_num_partitions;
 
-        // **内存修改**: 为块内归约操作计算所需的共享内存大小。
-        // 需要的空间是 double 和 long long 中较大者乘以线程数。
-        size_t shared_mem_size = threads_per_block * sizeof(double); // blockReduceSum 需要
-        shared_mem_size = max(shared_mem_size, threads_per_block * sizeof(long long)); // blockReduceMax 需要
 
-        // **启动修改**: 调用新的优化内核 fitPartitionsBatched_Optimized，
-        // 并传入新的启动配置。注意，最后一个参数 partitions_per_block 已被移除。
+        size_t shared_mem_size = threads_per_block * sizeof(double); 
+        shared_mem_size = max(shared_mem_size, threads_per_block * sizeof(long long)); 
+
+
         fitPartitionsBatched_Optimized<T><<<grid_size, threads_per_block, shared_mem_size, stream>>>(
             d_data,
             d_partition_starts,
@@ -4663,11 +4625,9 @@ public:
                                                                 compression_cuda_stream);
                 h_partition_infos = gpu_partitioner.partition();
             } else {
-                // 添加调试输出
                 std::cout << "[DEBUG] Creating CPU VariableLengthPartitioner with dataset_name = '" 
                         << dataset_name << "'" << std::endl;
                 
-                // Use original CPU partitioner - 传递数据集名称
                 VariableLengthPartitioner<T> var_partitioner(host_data_vec, 
                                                             SPLIT_THRESHOLD, 
                                                             MIN_PARTITION_SIZE,
@@ -6163,21 +6123,21 @@ public:
         int num_queries = positions_to_access.size();
         output_decompressed_data.resize(num_queries);
 
-        // 分配设备内存
+
         int* d_positions;
         T* d_output;
         CUDA_CHECK(cudaMalloc(&d_positions, num_queries * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_output, num_queries * sizeof(T)));
 
-        // 拷贝查询位置到设备
+ 
         CUDA_CHECK(cudaMemcpy(d_positions, positions_to_access.data(),
                             num_queries * sizeof(int), cudaMemcpyHostToDevice));
 
-        // 配置启动参数
+
         int block_size = 256;
         int grid_size = (num_queries + block_size - 1) / block_size;
 
-        // 调用新的、优化的内核
+
         randomAccessFixedPartitionKernel<T><<<grid_size, block_size>>>(
             compressed_data_input->d_start_indices,
             compressed_data_input->d_model_types,
@@ -6188,17 +6148,17 @@ public:
             d_positions,
             d_output,
             num_queries,
-            fixed_partition_size // 传入关键的优化参数
+            fixed_partition_size 
         );
 
         CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaDeviceSynchronize());
 
-        // 将结果拷贝回主机
+
         CUDA_CHECK(cudaMemcpy(output_decompressed_data.data(), d_output,
                             num_queries * sizeof(T), cudaMemcpyDeviceToHost));
 
-        // 清理
+
         CUDA_CHECK(cudaFree(d_positions));
         CUDA_CHECK(cudaFree(d_output));
     }
@@ -6715,11 +6675,11 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                 leco_instance.cleanup(current_compressed_ptr); 
                 current_compressed_ptr = nullptr; 
             }
-            // 构建带有配置信息的数据集名称
+
             std::string full_dataset_name = dataset_name.empty() ? 
                 data_type_string_name : dataset_name;
             
-            // 添加调试输出
+
             std::cout << "[DEBUG] run_compression_test: dataset_name = '" << dataset_name << "'" << std::endl;
             std::cout << "[DEBUG] run_compression_test: full_dataset_name = '" << full_dataset_name << "'" << std::endl;
             std::cout << "[DEBUG] run_compression_test: use_variable_part = " << current_use_variable_part << std::endl;
@@ -6756,12 +6716,12 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                     leco_instance.cleanup(cpu_var_compressed);
                     cpu_var_compressed = nullptr;
                 }
-                // 修正：这里也要传递 dataset_name
+   
                 std::string full_dataset_name = dataset_name.empty() ? 
                     data_type_string_name : dataset_name;
                 
                 cpu_var_compressed = leco_instance.compress(data_to_test, true, &cpu_var_size, false, 
-                                                        full_dataset_name);  // 添加数据集名称参数
+                                                        full_dataset_name);  
             }, 1);
             
             std::cout << "  CPU Variable Partitioning time: " << cpu_var_time << " ms" << std::endl;
@@ -6819,10 +6779,10 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                 std::cout << "\n--- Optimized Fixed-Partition Random Access Test ---" << std::endl;
                 std::vector<T> fixed_ra_output;
                 
-                // 声明所需的时间变量
+     
                 double time_fixed_ra = 0.0;
 
-                // 测试 Fixed-only 优化
+     
                 time_fixed_ra = benchmark([&]() {
                     leco_instance.randomAccessFixed(current_compressed_ptr, random_positions, fixed_ra_output, TILE_SIZE);
                 }, 100);
@@ -6833,13 +6793,13 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                     std::cout << "  -> Throughput: " << throughput_qps << " queries/sec" << std::endl;
                 }
 
-                // 计算并打印性能提升
+       
                 if (time_to_decompress > 0 && time_fixed_ra > 0) {
                     std::cout << "  -> Speedup vs. generic random access: " << 
                             (time_to_decompress / time_fixed_ra) << "x" << std::endl;
                 }
 
-                // 验证 Fixed-only 的正确性
+         
                 bool fixed_ra_correct = true;
                 int fixed_ra_mismatches = 0;
                 for (size_t i = 0; i < random_positions.size(); i++) {
@@ -6859,19 +6819,19 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                 }
                 std::cout << std::endl;
 
-                // 测试 Fixed + Pre-unpacked 优化
+        
                 std::cout << "\n--- Fixed-Partition Pre-Unpacked Random Access Test ---" << std::endl;
                 
-                // 序列化并反序列化以启用预解包
+        
                 SerializedData* temp_fixed_serialized = leco_instance.serializeGPU(current_compressed_ptr);
                 if (temp_fixed_serialized && temp_fixed_serialized->data) {
-                    // 反序列化时启用预解包
+            
                     CompressedData<T>* fixed_pre_unpacked = leco_instance.deserializeGPU(temp_fixed_serialized, true);
                     
                     if (fixed_pre_unpacked && fixed_pre_unpacked->d_plain_deltas) {
                         std::cout << "Successfully created pre-unpacked data for fixed partitions." << std::endl;
                         
-                        // 测试优化的内核
+                   
                         std::vector<T> fixed_pre_unpacked_output;
                         double time_fixed_pre_unpacked = benchmark([&]() {
                             leco_instance.randomAccessFixedPreUnpacked(fixed_pre_unpacked, 
@@ -6891,7 +6851,7 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                                     << throughput_mbs << " MB/s)" << std::endl;
                         }
                         
-                        // 与其他方法比较
+             
                         if (time_to_decompress > 0 && time_fixed_pre_unpacked > 0) {
                             std::cout << "  -> Speedup vs. generic random access: " << 
                                     (time_to_decompress / time_fixed_pre_unpacked) << "x" << std::endl;
@@ -6902,7 +6862,7 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                                     (time_fixed_ra / time_fixed_pre_unpacked) << "x" << std::endl;
                         }
                         
-                        // 验证正确性
+               
                         bool fixed_pre_unpacked_correct = true;
                         int fixed_pre_unpacked_mismatches = 0;
                         for (size_t i = 0; i < random_positions.size(); i++) {
@@ -6924,7 +6884,7 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                         }
                         std::cout << std::endl;
                         
-                        // 内存分析
+                
                         std::cout << "\nMemory overhead analysis:" << std::endl;
                         long long bitpacked_size = (current_compressed_size - 
                             (current_compressed_ptr->num_partitions * sizeof(PartitionInfo)));
@@ -6934,7 +6894,7 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                         std::cout << "  -> Memory overhead factor: " << 
                                 ((double)preunpacked_size / bitpacked_size) << "x" << std::endl;
                         
-                        // 所有固定分区方法的总结
+                
                         std::cout << "\n--- Fixed-Partition Random Access Summary ---" << std::endl;
                         std::cout << "1. Generic random access: " << time_to_decompress << " ms" << std::endl;
                         std::cout << "2. Fixed-only optimization: " << time_fixed_ra << " ms" << std::endl;
@@ -6945,7 +6905,7 @@ void run_compression_test(const std::vector<T>& data_to_test, const std::string&
                                     (time_to_decompress / time_fixed_pre_unpacked) << "x" << std::endl;
                         }
                         
-                        // 清理
+          
                         leco_instance.cleanup(fixed_pre_unpacked);
                     } else {
                         std::cout << "Failed to create pre-unpacked data for fixed partitions." << std::endl;
