@@ -1,4 +1,4 @@
-# G-LeCo-1
+# G-LeCo
 
 This repository contains three distinct integer compression frameworks.
 
