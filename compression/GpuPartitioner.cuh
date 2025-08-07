@@ -5,6 +5,8 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sort.h>
 
+#include "compression/PartitioningKernels.cuh"
+
 // Optimized GPU partitioner V6 focused on speed
 template<typename T>
 class GPUVariableLengthPartitionerV6 {
@@ -108,20 +110,17 @@ public:
         CUDA_CHECK(cudaMalloc(&d_max_errors, h_num_partitions * sizeof(long long)));
         CUDA_CHECK(cudaMalloc(&d_costs, h_num_partitions * sizeof(double)));
         
-        // 定义每个Block的线程数
-        int threads_per_block = 256; // 128 或 256 是一个不错的选择，有利于占用率
 
-        // **架构核心修改**: Grid的大小直接由分区数决定。
-        // 每个分区都获得一个独立的CUDA Block来并行处理。
+        int threads_per_block = 256; 
+
+
         int grid_size = h_num_partitions;
 
-        // **内存修改**: 为块内归约操作计算所需的共享内存大小。
-        // 需要的空间是 double 和 long long 中较大者乘以线程数。
-        size_t shared_mem_size = threads_per_block * sizeof(double); // blockReduceSum 需要
-        shared_mem_size = max(shared_mem_size, threads_per_block * sizeof(long long)); // blockReduceMax 需要
 
-        // **启动修改**: 调用新的优化内核 fitPartitionsBatched_Optimized，
-        // 并传入新的启动配置。注意，最后一个参数 partitions_per_block 已被移除。
+        size_t shared_mem_size = threads_per_block * sizeof(double);
+        shared_mem_size = max(shared_mem_size, threads_per_block * sizeof(long long));
+
+
         fitPartitionsBatched_Optimized<T><<<grid_size, threads_per_block, shared_mem_size, stream>>>(
             d_data,
             d_partition_starts,

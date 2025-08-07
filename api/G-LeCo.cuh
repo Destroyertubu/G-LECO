@@ -1,28 +1,40 @@
-#include "api/G-LeCo_Types.cuh" // 引入公共数据结构
+#include "api/G-LeCo_Types.cuh" 
 #include <cuda_runtime.h>       // for cudaStream_t
 #include <vector>               // for std::vector
 #include <string>               // for std::string
 
-#include "api/G-LeCo.cuh"       // 包含自身类的声明
-#include "core/InternalTypes.cuh" // 使用内部数据结构
-#include "compression/CpuPartitioner.cuh" // 使用CPU分区器
-#include "compression/GpuPartitioner.cuh" // 使用GPU分区器
+// #include "api/G-LeCo.cuh"       
+#include "core/InternalTypes.cuh" 
+#include "compression/CpuPartitioner.cuh" 
+#include "compression/GpuPartitioner.cuh" 
 #include "io/FileUtils.cuh"         // for calculateChecksum
-
-// 概念上，需要包含所有将要调用的内核文件 (在实际构建系统中，这通常通过链接或包含声明头文件完成)
-#include "compression/CompressionKernels.cu"
-#include "compression/PartitioningKernels.cu"
-#include "decompression/FullDecompressionKernels.cu"
-#include "decompression/RandomAccessKernels.cu"
-#include "decompression/FixedPartitionKernels.cu"
-#include "decompression/WorkStealingDecompressionKernels.cu"
-#include "decompression/UnpackKernel.cu"
-#include "io/SerializationKernels.cu"
 
 #include <iostream>             // for std::cout, std::cerr
 #include <algorithm>            // for std::min, std::max
 #include <cmath>                // for std::round
 #include <map>                  // for performance analysis
+
+// #############################################################################
+// # KERNEL DECLARATIONS
+// # Include the header files that DECLARE the kernels, not the implementations.
+// #############################################################################
+#include "compression/CompressionKernels.cuh"
+#include "compression/PartitioningKernels.cuh"
+#include "decompression/FullDecompressionKernels.cuh"
+#include "decompression/RandomAccessKernels.cuh"
+#include "decompression/FixedPartitionKernels.cuh"
+#include "decompression/WorkStealingDecompressionKernels.cuh"
+#include "decompression/UnpackKernel.cuh"
+#include "io/SerializationKernels.cuh"
+
+// #############################################################################
+// # FORWARD DECLARATIONS FOR HELPER CLASSES
+// #############################################################################
+template<typename T>
+class VariableLengthPartitioner;
+
+template<typename T>
+class GPUVariableLengthPartitionerV6;
 
 template<typename T>
 class LeCoGPU {

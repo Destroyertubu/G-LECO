@@ -16,8 +16,8 @@ NVCCFLAGS += -rdc=true
 # Specify the target GPU architecture. Change 'sm_75' to match your GPU.
 # Examples: sm_70 (Volta), sm_80 (Ampere), sm_86 (Ampere), sm_90 (Hopper)
 NVCCFLAGS += -arch=sm_75
-# Link against the CUB library (often included with CUDA Toolkit)
-NVCCFLAGS += -lcub
+# CUB is a header-only library included with the CUDA Toolkit,
+# so the -lcub flag is not needed for linking.
 
 
 # Directories
@@ -37,11 +37,8 @@ BUILD_DIR := build
 # Source Files and Object Files
 # =============================================================================
 # Find all .cu source files in the specified directories
-# Note: api/G-LeCo.cu is not included as it's a header-only implementation now.
-CU_SOURCES := $(wildcard $(COMP_DIR)/*.cu) \
-              $(wildcard $(DECOMP_DIR)/*.cu) \
-              $(wildcard $(IO_DIR)/*.cu) \
-              $(wildcard $(APP_DIR)/*.cu)
+# Since all kernels are now in .cuh headers, we only need to compile Main.cu
+CU_SOURCES := $(wildcard $(APP_DIR)/*.cu)
 
 # Generate corresponding object file paths in the build directory
 OBJECTS := $(patsubst %.cu, $(BUILD_DIR)/%.o, $(CU_SOURCES))

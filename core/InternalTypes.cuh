@@ -1,3 +1,6 @@
+#ifndef CORE_INTERNAL_TYPES_CUH
+#define CORE_INTERNAL_TYPES_CUH
+
 #include <cstdint>
 #include "core/CudaUtils.cuh"   // 依赖其中定义的常量
 
@@ -81,3 +84,5 @@ struct WorkStealingQueue {
     int max_tasks;
     int num_threads;
 };
+
+#endif // CORE_INTERNAL_TYPES_CUH

@@ -1,9 +1,131 @@
+#ifndef DECOMPRESSION_WORK_STEALING_DECOMPRESSION_KERNELS_CUH
+#define DECOMPRESSION_WORK_STEALING_DECOMPRESSION_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Kernel using cooperative groups for better load balancing
+template<typename T>
+__launch_bounds__(256, 4)
+__global__ void decompressFullFileCooperativeKernel(
+    const CompressedData<T>* __restrict__ compressed_data_on_device,
+    T* __restrict__ output_device,
+    int total_elements);
+
+// Kernel using a basic work-stealing approach
+template<typename T>
+__global__ void decompressFullFile_WorkStealing(
+    const CompressedData<T>* compressed_data,
+    T* output_device,
+    int total_elements,
+    int* global_work_counter);
+
+// Kernel using an advanced work-stealing approach with warp specialization
+template<typename T>
+__global__ void decompressFullFile_WorkStealingAdvanced(
+    const CompressedData<T>* compressed_data,
+    T* output_device,
+    int total_elements,
+    int* global_partition_counter);
+
+
+
 #include <cuda_runtime.h>
-#include "api/G-LeCo_Types.cuh"       // 需要操作 CompressedData<T>
-#include "core/InternalTypes.cuh"   // 需要内部元数据结构
-#include "core/MathHelpers.cuh"       // 需要 applyDelta, etc.
-#include "core/BitManipulation.cuh" // 需要 extractDelta, etc.
-#include <type_traits>              // for std::is_signed
+#include "api/G-LeCo_Types.cuh"       
+#include "core/InternalTypes.cuh"   
+#include "core/MathHelpers.cuh"       
+#include "core/BitManipulation.cuh" 
+#include <type_traits>              
+
+// Helper function for warp-optimized partition processing
+template<typename T>
+__device__ inline void processPartitionWarpOptimized(
+    int start_idx, int end_idx, int model_type, int partition_idx,
+    const double* model_params, const int32_t* delta_bits,
+    const int64_t* delta_offsets, const uint32_t* delta_array,
+    const long long* plain_deltas, T* output_device,
+    int total_elements, int lane_id) {
+    
+    int partition_size = end_idx - start_idx;
+    if (partition_size <= 0 || start_idx >= total_elements) return;
+    
+    if (model_type == MODEL_DIRECT_COPY) {
+        // Direct copy with warp-level parallelism
+        for (int i = lane_id; i < partition_size; i += 32) {
+            int global_idx = start_idx + i;
+            if (global_idx >= total_elements) break;
+            
+            if (plain_deltas != nullptr) {
+                output_device[global_idx] = static_cast<T>(plain_deltas[global_idx]);
+            } else if (delta_array != nullptr) {
+                int32_t bits = delta_bits[partition_idx];
+                if (bits > 0) {
+                    int64_t bit_offset = delta_offsets[partition_idx] + (int64_t)i * bits;
+                    output_device[global_idx] = extractDirectValue<T>(delta_array, bit_offset, bits);
+                } else {
+                    output_device[global_idx] = static_cast<T>(0);
+                }
+            } else {
+                output_device[global_idx] = static_cast<T>(0);
+            }
+        }
+    } else {
+        // Model-based reconstruction with warp-level parallelism
+        double theta0 = model_params[partition_idx * 4];
+        double theta1 = model_params[partition_idx * 4 + 1];
+        double theta2 = (model_type == MODEL_POLYNOMIAL2) ? model_params[partition_idx * 4 + 2] : 0.0;
+        
+        for (int i = lane_id; i < partition_size; i += 32) {
+            int global_idx = start_idx + i;
+            if (global_idx >= total_elements) break;
+            
+            // Calculate prediction
+            double predicted = theta0 + theta1 * i;
+            if (model_type == MODEL_POLYNOMIAL2) {
+                predicted += theta2 * i * i;
+            }
+            
+            // Clamp prediction
+            if (!std::is_signed<T>::value) {
+                predicted = fmax(0.0, predicted);
+                if (sizeof(T) == 8) {
+                    predicted = fmin(predicted, 18446744073709551615.0);
+                } else if (sizeof(T) == 4) {
+                    predicted = fmin(predicted, 4294967295.0);
+                } else if (sizeof(T) == 2) {
+                    predicted = fmin(predicted, 65535.0);
+                } else if (sizeof(T) == 1) {
+                    predicted = fmin(predicted, 255.0);
+                }
+            } else {
+                if (sizeof(T) == 8) {
+                    predicted = fmax(-9223372036854775808.0, fmin(predicted, 9223372036854775807.0));
+                } else if (sizeof(T) == 4) {
+                    predicted = fmax(-2147483648.0, fmin(predicted, 2147483647.0));
+                } else if (sizeof(T) == 2) {
+                    predicted = fmax(-32768.0, fmin(predicted, 32767.0));
+                } else if (sizeof(T) == 1) {
+                    predicted = fmax(-128.0, fmin(predicted, 127.0));
+                }
+            }
+            
+            T pred_val = static_cast<T>(round(predicted));
+            
+            // Get delta
+            long long delta = 0;
+            if (plain_deltas != nullptr) {
+                delta = plain_deltas[global_idx];
+            } else if (delta_array != nullptr) {
+                int32_t bits = delta_bits[partition_idx];
+                if (bits > 0) {
+                    int64_t bit_offset = delta_offsets[partition_idx] + (int64_t)i * bits;
+                    delta = extractDelta_Optimized<T>(delta_array, bit_offset, bits);
+                }
+            }
+            
+            output_device[global_idx] = applyDelta(pred_val, delta);
+        }
+    }
+}
 
 
 
@@ -497,94 +619,9 @@ __global__ void decompressFullFile_WorkStealingAdvanced(
 }
 
 
-// Helper function for warp-optimized partition processing
-template<typename T>
-__device__ inline void processPartitionWarpOptimized(
-    int start_idx, int end_idx, int model_type, int partition_idx,
-    const double* model_params, const int32_t* delta_bits,
-    const int64_t* delta_offsets, const uint32_t* delta_array,
-    const long long* plain_deltas, T* output_device,
-    int total_elements, int lane_id) {
-    
-    int partition_size = end_idx - start_idx;
-    if (partition_size <= 0 || start_idx >= total_elements) return;
-    
-    if (model_type == MODEL_DIRECT_COPY) {
-        // Direct copy with warp-level parallelism
-        for (int i = lane_id; i < partition_size; i += 32) {
-            int global_idx = start_idx + i;
-            if (global_idx >= total_elements) break;
-            
-            if (plain_deltas != nullptr) {
-                output_device[global_idx] = static_cast<T>(plain_deltas[global_idx]);
-            } else if (delta_array != nullptr) {
-                int32_t bits = delta_bits[partition_idx];
-                if (bits > 0) {
-                    int64_t bit_offset = delta_offsets[partition_idx] + (int64_t)i * bits;
-                    output_device[global_idx] = extractDirectValue<T>(delta_array, bit_offset, bits);
-                } else {
-                    output_device[global_idx] = static_cast<T>(0);
-                }
-            } else {
-                output_device[global_idx] = static_cast<T>(0);
-            }
-        }
-    } else {
-        // Model-based reconstruction with warp-level parallelism
-        double theta0 = model_params[partition_idx * 4];
-        double theta1 = model_params[partition_idx * 4 + 1];
-        double theta2 = (model_type == MODEL_POLYNOMIAL2) ? model_params[partition_idx * 4 + 2] : 0.0;
-        
-        for (int i = lane_id; i < partition_size; i += 32) {
-            int global_idx = start_idx + i;
-            if (global_idx >= total_elements) break;
-            
-            // Calculate prediction
-            double predicted = theta0 + theta1 * i;
-            if (model_type == MODEL_POLYNOMIAL2) {
-                predicted += theta2 * i * i;
-            }
-            
-            // Clamp prediction
-            if (!std::is_signed<T>::value) {
-                predicted = fmax(0.0, predicted);
-                if (sizeof(T) == 8) {
-                    predicted = fmin(predicted, 18446744073709551615.0);
-                } else if (sizeof(T) == 4) {
-                    predicted = fmin(predicted, 4294967295.0);
-                } else if (sizeof(T) == 2) {
-                    predicted = fmin(predicted, 65535.0);
-                } else if (sizeof(T) == 1) {
-                    predicted = fmin(predicted, 255.0);
-                }
-            } else {
-                if (sizeof(T) == 8) {
-                    predicted = fmax(-9223372036854775808.0, fmin(predicted, 9223372036854775807.0));
-                } else if (sizeof(T) == 4) {
-                    predicted = fmax(-2147483648.0, fmin(predicted, 2147483647.0));
-                } else if (sizeof(T) == 2) {
-                    predicted = fmax(-32768.0, fmin(predicted, 32767.0));
-                } else if (sizeof(T) == 1) {
-                    predicted = fmax(-128.0, fmin(predicted, 127.0));
-                }
-            }
-            
-            T pred_val = static_cast<T>(round(predicted));
-            
-            // Get delta
-            long long delta = 0;
-            if (plain_deltas != nullptr) {
-                delta = plain_deltas[global_idx];
-            } else if (delta_array != nullptr) {
-                int32_t bits = delta_bits[partition_idx];
-                if (bits > 0) {
-                    int64_t bit_offset = delta_offsets[partition_idx] + (int64_t)i * bits;
-                    delta = extractDelta_Optimized<T>(delta_array, bit_offset, bits);
-                }
-            }
-            
-            output_device[global_idx] = applyDelta(pred_val, delta);
-        }
-    }
-}
 
+
+
+
+
+#endif // DECOMPRESSION_WORK_STEALING_DECOMPRESSION_KERNELS_CUH

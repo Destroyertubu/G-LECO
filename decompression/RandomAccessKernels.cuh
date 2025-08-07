@@ -1,9 +1,52 @@
+#ifndef DECOMPRESSION_RANDOM_ACCESS_KERNELS_CUH
+#define DECOMPRESSION_RANDOM_ACCESS_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Optimized kernel for random access queries with reduced branching
+template<typename T>
+__global__ void decompressOptimizedKernel(const CompressedData<T>* compressed_data_on_device,
+                                         T* output_device,
+                                         const int* positions_device,
+                                         int num_queries_val);
+
+// Optimized kernel for direct random access from a serialized data blob on the GPU
+template<typename T>
+__global__ void directRandomAccessKernel(
+    const int32_t* __restrict__ start_indices,
+    const int32_t* __restrict__ end_indices,
+    const int32_t* __restrict__ model_types,
+    const double* __restrict__ model_params,
+    const int32_t* __restrict__ delta_bits,
+    const int64_t* __restrict__ delta_array_bit_offsets,
+    const uint32_t* __restrict__ delta_array,
+    const int* __restrict__ positions,
+    T* __restrict__ output,
+    int num_partitions,
+    int num_queries);
+
+// Kernel for random access queries when deltas have been pre-unpacked
+template<typename T>
+__global__ void randomAccessPreUnpackedKernel(
+    const int32_t* __restrict__ start_indices,
+    const int32_t* __restrict__ end_indices,
+    const int32_t* __restrict__ model_types,
+    const double* __restrict__ model_params,
+    const long long* __restrict__ plain_deltas,
+    const int* __restrict__ positions,
+    T* __restrict__ output,
+    int num_partitions,
+    int num_queries);
+
+
+
+
 #include <cuda_runtime.h>
-#include "api/G-LeCo_Types.cuh"       // 需要操作 CompressedData<T>
-#include "core/InternalTypes.cuh"   // 需要内部元数据结构
-#include "core/MathHelpers.cuh"       // 需要 applyDelta, etc.
-#include "core/BitManipulation.cuh" // 需要 extractDelta, etc.
-#include <type_traits>              // for std::is_signed
+#include "api/G-LeCo_Types.cuh"       
+#include "core/InternalTypes.cuh"   
+#include "core/MathHelpers.cuh"      
+#include "core/BitManipulation.cuh" 
+#include <type_traits>             
 
 
 
@@ -403,3 +446,6 @@ __global__ void randomAccessPreUnpackedKernel(
         output[idx] = applyDelta(pred_val, delta);
     }
 }
+
+
+#endif // DECOMPRESSION_RANDOM_ACCESS_KERNELS_CUH

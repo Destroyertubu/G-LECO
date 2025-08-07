@@ -1,8 +1,45 @@
+#ifndef COMPRESSION_COMPRESSION_KERNELS_CUH
+#define COMPRESSION_COMPRESSION_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Kernel for model fitting, overflow checking, and metadata computation
+template<typename T>
+__global__ void wprocessPartitionsKernel(const T* values_device,
+                                       int32_t* d_start_indices,
+                                       int32_t* d_end_indices,
+                                       int32_t* d_model_types,
+                                       double* d_model_params,
+                                       int32_t* d_delta_bits,
+                                       long long* d_error_bounds,
+                                       int num_partitions,
+                                       int64_t* total_bits_device);
+
+// Kernel to set bit offsets based on a cumulative sum of partition bit requirements
+__global__ void setBitOffsetsKernel(int32_t* d_start_indices,
+                                   int32_t* d_end_indices,
+                                   int32_t* d_delta_bits,
+                                   int64_t* d_delta_array_bit_offsets,
+                                   int num_partitions);
+
+// Kernel to pack the calculated deltas into the final bit-packed array
+template<typename T>
+__global__ void packDeltasKernelOptimized(const T* values_device,
+                                          const int32_t* d_start_indices,
+                                          const int32_t* d_end_indices,
+                                          const int32_t* d_model_types,
+                                          const double* d_model_params,
+                                          const int32_t* d_delta_bits,
+                                          const int64_t* d_delta_array_bit_offsets,
+                                          int num_partitions_val,
+                                          uint32_t* delta_array_device);
+
 #include <cuda_runtime.h>
 #include "core/InternalTypes.cuh"
 #include "core/MathHelpers.cuh"
 #include "core/BitManipulation.cuh"
 #include <cmath>
+#include "api/G-LeCo_Types.cuh"
 
 // Combined kernel for overflow checking, model fitting, and metadata computation - UPDATED FOR SoA
 template<typename T>
@@ -333,3 +370,5 @@ __global__ void packDeltasKernelOptimized(const T* values_device,
         }
     }
 }
+
+#endif // COMPRESSION_COMPRESSION_KERNELS_CUH

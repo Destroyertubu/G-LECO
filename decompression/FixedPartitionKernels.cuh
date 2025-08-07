@@ -1,3 +1,44 @@
+#ifndef DECOMPRESSION_FIXED_PARTITION_KERNELS_CUH
+#define DECOMPRESSION_FIXED_PARTITION_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Kernel for random access on fixed-size partitions, avoiding binary search
+template<typename T>
+__global__ void randomAccessFixedPartitionKernel(
+    const int32_t* __restrict__ start_indices,
+    const int32_t* __restrict__ model_types,
+    const double* __restrict__ model_params,
+    const int32_t* __restrict__ delta_bits,
+    const int64_t* __restrict__ delta_array_bit_offsets,
+    const uint32_t* __restrict__ delta_array,
+    const int* __restrict__ positions,
+    T* __restrict__ output,
+    int num_queries,
+    int partition_size);
+
+// Kernel for random access on fixed-size partitions with pre-unpacked deltas
+template<typename T>
+__global__ void randomAccessFixedPreUnpackedKernel(
+    const int32_t* __restrict__ model_types,
+    const double* __restrict__ model_params,
+    const long long* __restrict__ plain_deltas,
+    const int* __restrict__ positions,
+    T* __restrict__ output,
+    int num_queries,
+    int partition_size);
+
+// Further optimized version of the above kernel
+template<typename T>
+__global__ void randomAccessFixedPreUnpackedOptimized(
+    const int32_t* __restrict__ model_types,
+    const double* __restrict__ model_params,
+    const long long* __restrict__ plain_deltas,
+    const int* __restrict__ positions,
+    T* __restrict__ output,
+    int num_queries,
+    int partition_size);
+
 #include <cuda_runtime.h>
 #include "api/G-LeCo_Types.cuh"       // 需要操作 CompressedData<T>
 #include "core/InternalTypes.cuh"   // 需要内部元数据结构
@@ -266,3 +307,5 @@ __global__ void randomAccessFixedPreUnpackedOptimized(
         output[idx] = applyDelta(pred_val, delta);
     }
 }
+
+#endif // DECOMPRESSION_FIXED_PARTITION_KERNELS_CUH

@@ -1,3 +1,6 @@
+#ifndef CORE_MATH_HELPERS_CUH
+#define CORE_MATH_HELPERS_CUH
+
 #include <cuda_runtime.h>       // for __device__, __host__, intrinsics
 #include <type_traits>          // for std::is_signed
 #include <cmath>                // for fmax, fmin, round
@@ -85,21 +88,21 @@ inline uint64_t alignOffset(uint64_t offset, uint64_t alignment) {
 }
 
 // Helper function for warp reduction - sum
-__device__ double warpReduceSum(double val) {
+__device__ __forceinline__ double warpReduceSum(double val) {
     for (int offset = 16; offset > 0; offset >>= 1)
         val += __shfl_down_sync(0xffffffff, val, offset);
     return val;
 }
 
 // Helper function for warp reduction - max
-__device__ long long warpReduceMax(long long val) {
+__device__ __forceinline__ long long warpReduceMax(long long val) {
     for (int offset = 16; offset > 0; offset >>= 1)
         val = max(val, __shfl_down_sync(0xffffffff, val, offset));
     return val;
 }
 
 // Helper for block reduction - sum
-__device__ double blockReduceSum(double val) {
+__device__ __forceinline__ double blockReduceSum(double val) {
     __shared__ double shared[32];
     int lane = threadIdx.x & 31;
     int wid = threadIdx.x >> 5;
@@ -116,7 +119,7 @@ __device__ double blockReduceSum(double val) {
 }
 
 // Helper for block reduction - max
-__device__ long long blockReduceMax(long long val) {
+__device__ __forceinline__ long long blockReduceMax(long long val) {
     __shared__ long long shared[32];
     int lane = threadIdx.x & 31;
     int wid = threadIdx.x >> 5;
@@ -131,3 +134,5 @@ __device__ long long blockReduceMax(long long val) {
     
     return val;
 }
+
+#endif // CORE_MATH_HELPERS_CUH

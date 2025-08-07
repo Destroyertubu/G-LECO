@@ -266,9 +266,9 @@ private:
 
 
 private:
-    // 新增方法：将分段长度写入文件
+
     void writePartitionLengthsToFile(const std::vector<PartitionInfo>& partitions) {
-        // 构建文件名：dataset_name_partition_lengths.txt
+
         std::string filename = dataset_name_member + "_cpu_var_partition_lengths.txt";
         
         std::ofstream outfile(filename);
@@ -278,21 +278,21 @@ private:
             return;
         }
         
-        // 写入头部信息
+
         outfile << "# CPU Variable-Length Partition Lengths for dataset: " << dataset_name_member << std::endl;
         outfile << "# Total partitions: " << partitions.size() << std::endl;
         outfile << "# Total elements: " << data_host_vec.size() << std::endl;
         outfile << "# Format: partition_index start_idx end_idx length" << std::endl;
         outfile << "#" << std::endl;
         
-        // 写入每个分段的长度
+
         for (size_t i = 0; i < partitions.size(); i++) {
             int length = partitions[i].end_idx - partitions[i].start_idx;
             outfile << i << " " << partitions[i].start_idx << " " 
                    << partitions[i].end_idx << " " << length << std::endl;
         }
         
-        // 写入统计信息
+
         int min_length = INT_MAX;
         int max_length = 0;
         long long total_length = 0;
@@ -329,22 +329,22 @@ public:
             min_part_size_param(min_size_param), 
             dataset_name_member(dataset_name_param) {
             
-            // 双重确保赋值
+
             this->dataset_name_member = dataset_name_param;
             
-            // 调试输出
+
             std::cout << "[DEBUG] VariableLengthPartitioner constructor called" << std::endl;
             std::cout << "[DEBUG]   dataset_name_param = '" << dataset_name_param << "'" << std::endl;
             std::cout << "[DEBUG]   this->dataset_name_member = '" << this->dataset_name_member << "'" << std::endl;
         }
 
-        // 修改 VariableLengthPartitioner 的 partition() 方法，添加调试输出
+
         std::vector<PartitionInfo> partition() {
             if (data_host_vec.empty()) {
                 return std::vector<PartitionInfo>();
             }
             
-            // 添加调试输出
+
             std::cout << "[DEBUG] VariableLengthPartitioner::partition() called" << std::endl;
             std::cout << "[DEBUG] dataset_name_member = '" << dataset_name_member << "'" << std::endl;
             
@@ -399,12 +399,12 @@ public:
                 }
             }
             
-            // 添加更多调试输出
+
             std::cout << "[DEBUG] result.size() = " << result.size() << std::endl;
             std::cout << "[DEBUG] result.empty() = " << result.empty() << std::endl;
             std::cout << "[DEBUG] dataset_name_member.empty() = " << dataset_name_member.empty() << std::endl;
             
-            // 在返回结果之前，写入分段长度到文件
+
             if (!result.empty() && !dataset_name_member.empty()) {
                 std::cout << "[DEBUG] Calling writePartitionLengthsToFile..." << std::endl;
                 writePartitionLengthsToFile(result);

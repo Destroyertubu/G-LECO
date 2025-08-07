@@ -1,3 +1,56 @@
+#ifndef IO_SERIALIZATION_KERNELS_CUH
+#define IO_SERIALIZATION_KERNELS_CUH
+
+#include <cstdint>
+#include "core/InternalTypes.cuh"
+
+// Kernel to pack all metadata and delta arrays from separate GPU pointers into a single binary blob
+__global__ void packToBlobKernel(
+    const SerializedHeader* __restrict__ d_header,
+    const int32_t* __restrict__ d_start_indices,
+    const int32_t* __restrict__ d_end_indices,
+    const int32_t* __restrict__ d_model_types,
+    const double* __restrict__ d_model_params,
+    const int32_t* __restrict__ d_delta_bits,
+    const int64_t* __restrict__ d_delta_array_bit_offsets,
+    const long long* __restrict__ d_error_bounds,
+    const uint32_t* __restrict__ d_delta_array,
+    int num_partitions,
+    uint64_t delta_array_num_bytes,
+    uint8_t* __restrict__ d_output_blob);
+
+// Optimized version of the packing kernel
+__global__ void packToBlobKernelOptimized(
+    const SerializedHeader* __restrict__ d_header,
+    const int32_t* __restrict__ d_start_indices,
+    const int32_t* __restrict__ d_end_indices,
+    const int32_t* __restrict__ d_model_types,
+    const double* __restrict__ d_model_params,
+    const int32_t* __restrict__ d_delta_bits,
+    const int64_t* __restrict__ d_delta_array_bit_offsets,
+    const long long* __restrict__ d_error_bounds,
+    const uint32_t* __restrict__ d_delta_array,
+    int num_partitions,
+    uint64_t delta_array_num_bytes,
+    uint8_t* __restrict__ d_output_blob);
+
+// Kernel to unpack a binary blob from a single GPU pointer into separate metadata and delta arrays
+__global__ void unpackFromBlobKernel(
+    const uint8_t* __restrict__ d_input_blob,
+    int num_partitions,
+    uint64_t delta_array_num_bytes,
+    int32_t* __restrict__ d_start_indices,
+    int32_t* __restrict__ d_end_indices,
+    int32_t* __restrict__ d_model_types,
+    double* __restrict__ d_model_params,
+    int32_t* __restrict__ d_delta_bits,
+    int64_t* __restrict__ d_delta_array_bit_offsets,
+    long long* __restrict__ d_error_bounds,
+    uint32_t* __restrict__ d_delta_array);
+
+
+
+
 #include <cuda_runtime.h>
 #include "core/InternalTypes.cuh"
 
@@ -269,3 +322,5 @@ __global__ void packToBlobKernelOptimized(
         }
     }
 }
+
+#endif // IO_SERIALIZATION_KERNELS_CUH

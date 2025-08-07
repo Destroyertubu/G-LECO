@@ -1,9 +1,29 @@
+#ifndef DECOMPRESSION_UNPACK_KERNEL_CUH
+#define DECOMPRESSION_UNPACK_KERNEL_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Kernel to pre-unpack all deltas from the bit-packed format into a plain long long array
+template<typename T>
+__global__ void unpackAllDeltasKernel(
+    const int32_t* __restrict__ d_start_indices,
+    const int32_t* __restrict__ d_end_indices,
+    const int32_t* __restrict__ d_model_types,
+    const int32_t* __restrict__ d_delta_bits,
+    const int64_t* __restrict__ d_delta_array_bit_offsets,
+    const uint32_t* __restrict__ delta_array,
+    long long* __restrict__ d_plain_deltas_output,
+    int num_partitions,
+    int total_values);
+
+
+
 #include <cuda_runtime.h>
-#include "api/G-LeCo_Types.cuh"       // 需要操作 CompressedData<T>
-#include "core/InternalTypes.cuh"   // 需要内部元数据结构
-#include "core/MathHelpers.cuh"       // 需要 applyDelta, etc.
-#include "core/BitManipulation.cuh" // 需要 extractDelta, etc.
-#include <type_traits>              // for std::is_signed
+#include "api/G-LeCo_Types.cuh"       
+#include "core/InternalTypes.cuh"   
+#include "core/MathHelpers.cuh"       
+#include "core/BitManipulation.cuh" 
+#include <type_traits>              
 
 
 
@@ -76,3 +96,6 @@ __global__ void unpackAllDeltasKernel(
         d_plain_deltas_output[idx] = delta;
     }
 }
+
+
+#endif // DECOMPRESSION_UNPACK_KERNEL_CUH

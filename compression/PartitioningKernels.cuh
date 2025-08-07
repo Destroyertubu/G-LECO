@@ -1,8 +1,111 @@
+#ifndef COMPRESSION_PARTITIONING_KERNELS_CUH
+#define COMPRESSION_PARTITIONING_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+#include "core/InternalTypes.cuh"
+
+// Kernel to calculate the compression cost for a set of candidate partitions
+template<typename T>
+__global__ void calculatePartitionCostsKernel(const T* data, int data_size, int min_part_size,
+                                             const int* start_indices, const int* end_indices, 
+                                             double* costs, int num_candidates,
+                                             double model_size_bytes);
+
+// Kernel to fit linear models to a batch of partitions
+template<typename T>
+__global__ void fitPartitionModelsKernel(const T* data, PartitionCandidateGPU* candidates,
+                                        int num_partitions, double model_size_bytes);
+
+// Kernel to initialize a work-stealing queue on the GPU
+__global__ void initWorkStealingQueueKernel(WorkStealingQueue queue, int initial_tasks);
+
+// Work-stealing kernel for the main partitioning evaluation phase
+template<typename T>
+__global__ void workStealingPartitionKernel(
+    const T* data,
+    int data_size,
+    int min_partition_size,
+    double split_threshold,
+    WorkStealingQueue queue,
+    PartitionCandidateGPU* candidates,
+    int* num_candidates,
+    double model_size_bytes);
+
+// Work-stealing kernel to merge adjacent partitions
+__global__ void workStealingMergeKernel(
+    PartitionCandidateGPU* candidates,
+    int* num_candidates,
+    bool* changed,
+    int iteration);
+
+// V2 Kernel for parallel partition fitting with overflow checks
+template<typename T>
+__global__ void fitPartitionsParallelKernelV2(
+    const T* data,
+    const int* partition_starts,
+    const int* partition_ends,
+    int* model_types,
+    double* theta0_array,
+    double* theta1_array,
+    int* delta_bits_array,
+    long long* max_errors,
+    double* costs,
+    int num_partitions);
+
+// Kernel to apply partition merges
+__global__ void applyMergesKernel(
+    int* partition_starts,
+    int* partition_ends,
+    double* costs,
+    int* merge_targets,
+    bool* active,
+    int num_partitions);
+
+// Kernel for fast data variance analysis
+template<typename T>
+__global__ void analyzeDataVarianceFast(
+    const T* __restrict__ data,
+    int data_size,
+    int block_size,
+    float* __restrict__ variances,
+    int num_blocks);
+
+// Kernel to create partitions based on variance thresholds
+template<typename T>
+__global__ void createPartitionsFast(
+    int data_size,
+    int base_size,
+    const float* __restrict__ variances,
+    int num_variance_blocks,
+    int* __restrict__ partition_starts,
+    int* __restrict__ partition_ends,
+    int* __restrict__ num_partitions,
+    const float* __restrict__ variance_thresholds);
+
+// Optimized kernel where one CUDA block processes one partition
+template<typename T>
+__global__ void fitPartitionsBatched_Optimized(
+    const T* __restrict__ data,
+    const int* __restrict__ partition_starts,
+    const int* __restrict__ partition_ends,
+    int* __restrict__ model_types,
+    double* __restrict__ theta0_array,
+    double* __restrict__ theta1_array,
+    int* __restrict__ delta_bits_array,
+    long long* __restrict__ max_errors,
+    double* __restrict__ costs,
+    int num_partitions);
+
+
 #include <cuda_runtime.h>
 #include "core/InternalTypes.cuh"
 #include "core/MathHelpers.cuh"
 #include "core/BitManipulation.cuh"
 #include <cmath>
+#include "api/G-LeCo_Types.cuh"
+
+// Define this constant before the kernels
+const double PARTITION_MODEL_SIZE_BYTES = sizeof(PartitionInfo);
 
 // CUDA kernels for parallel partitioning (must be outside class)
 template<typename T>
@@ -774,3 +877,6 @@ __global__ void fitPartitionsBatched_Optimized(
     }
 }
 
+
+
+#endif // COMPRESSION_PARTITIONING_KERNELS_CUH

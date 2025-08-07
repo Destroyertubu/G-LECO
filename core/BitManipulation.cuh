@@ -1,3 +1,6 @@
+#ifndef CORE_BIT_MANIPULATION_CUH
+#define CORE_BIT_MANIPULATION_CUH
+
 #include <cuda_runtime.h>
 #include <cstdint>
 #include <algorithm>            // for min
@@ -195,3 +198,5 @@ __device__ inline T extractDirectValue(const uint32_t* delta_array,
         return static_cast<T>(extracted_val_64);
     }
 }
+
+#endif // CORE_BIT_MANIPULATION_CUH

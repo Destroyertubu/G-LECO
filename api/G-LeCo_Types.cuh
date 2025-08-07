@@ -1,5 +1,9 @@
+#ifndef G_LECO_API_G_LECO_TYPES_CUH
+#define G_LECO_API_G_LECO_TYPES_CUH
+
 #include <cstdint>      // for uint32_t, int64_t, etc.
 #include <cstddef>      // for size_t
+#include "core/InternalTypes.cuh"
 
 enum ModelType {
     MODEL_CONSTANT = 0,
@@ -101,3 +105,5 @@ struct alignas(256) DirectAccessHandle {  // Increased alignment to 256 bytes
     // Padding to ensure size is multiple of alignment
     char padding[256 - (sizeof(void*) * 20 + sizeof(size_t)) % 256];
 };
+
+#endif // G_LECO_API_G_LECO_TYPES_CUH

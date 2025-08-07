@@ -1,9 +1,45 @@
+#ifndef DECOMPRESSION_FULL_DECOMPRESSION_KERNELS_CUH
+#define DECOMPRESSION_FULL_DECOMPRESSION_KERNELS_CUH
+
+#include "api/G-LeCo_Types.cuh"
+
+// Kernel for full-file decompression when deltas are pre-unpacked
+template<typename T>
+__global__ void decompressFullFile_PreUnpacked(
+    const CompressedData<T>* compressed_data,
+    T* output_device,
+    int total_elements);
+
+// Kernel for full-file decompression, extracting deltas from the bit-packed array on the fly
+template<typename T>
+__global__ void decompressFullFile_BitPacked(
+    const CompressedData<T>* compressed_data,
+    T* output_device,
+    int total_elements);
+
+// Optimized kernel where one CUDA block is mapped to one partition
+template<typename T>
+__global__ void decompressFullFile_OnTheFly_Optimized_V2(
+    const CompressedData<T>* compressed_data,
+    T* output_device,
+    int total_elements);
+
+// Optimized kernel for fixed-size partitions that avoids binary search
+template<typename T>
+__global__ void decompressFullFileFix(
+    const CompressedData<T>* __restrict__ compressed_data_on_device,
+    T* __restrict__ output_device,
+    int total_elements,
+    int partition_size);
+
+
+
 #include <cuda_runtime.h>
-#include "api/G-LeCo_Types.cuh"       // 需要操作 CompressedData<T>
-#include "core/InternalTypes.cuh"   // 需要内部元数据结构
-#include "core/MathHelpers.cuh"       // 需要 applyDelta, etc.
-#include "core/BitManipulation.cuh" // 需要 extractDelta, etc.
-#include <type_traits>              // for std::is_signed
+#include "api/G-LeCo_Types.cuh"       
+#include "core/InternalTypes.cuh"   
+#include "core/MathHelpers.cuh"       
+#include "core/BitManipulation.cuh" 
+#include <type_traits>              
 
 
 
@@ -350,8 +386,7 @@ __global__ void decompressFullFileFix(
     int total_elements,
     int partition_size) {
 
-    // --- 优化部分：在共享内存中定义元数据缓存 ---
-    // 用于缓存当前分区元数据的结构体
+
     struct PartitionMetaCache {
         int32_t model_type;
         int32_t delta_bits;
@@ -360,12 +395,10 @@ __global__ void decompressFullFileFix(
         int64_t bit_offset_base;
     };
 
-    // 每个线程块（Block）使用一个共享内存缓存
+
     __shared__ PartitionMetaCache s_meta;
-    // 用于记录当前缓存的是哪个分区
     __shared__ int s_cached_partition_idx;
 
-    // --- 内核主体逻辑 ---
     int g_idx = threadIdx.x + blockIdx.x * blockDim.x;
     int g_stride = blockDim.x * gridDim.x;
 
@@ -373,11 +406,9 @@ __global__ void decompressFullFileFix(
         return;
     }
 
-    // 在循环开始前，由块内第一个线程初始化缓存标记
     if (threadIdx.x == 0) {
-        s_cached_partition_idx = -1; // -1 表示缓存无效
+        s_cached_partition_idx = -1; 
     }
-    // 同步以确保所有线程都看到无效的缓存标记
     __syncthreads();
 
     const int32_t* __restrict__ dev_model_types = compressed_data_on_device->d_model_types;
@@ -395,10 +426,8 @@ __global__ void decompressFullFileFix(
             continue; 
         }
 
-        // --- 优化部分：动态缓存检查与更新 ---
-        // 检查当前分区元数据是否已在缓存中
+
         if (partition_idx != s_cached_partition_idx) {
-            // 如果不在缓存中（缓存失效），则由块内的第一个线程负责从全局内存加载新元数据
             if (threadIdx.x == 0) {
                 s_meta.model_type = dev_model_types[partition_idx];
                 s_meta.delta_bits = dev_delta_bits[partition_idx];
@@ -408,14 +437,12 @@ __global__ void decompressFullFileFix(
                     s_meta.theta0 = dev_model_params[partition_idx * 4];
                     s_meta.theta1 = dev_model_params[partition_idx * 4 + 1];
                 }
-                // 更新缓存标记
                 s_cached_partition_idx = partition_idx;
             }
-            // **关键**：同步块内所有线程，以确保所有线程都能看到由线程0加载的最新元数据
+
             __syncthreads();
         }
         
-        // --- 解压逻辑：从共享内存缓存中读取元数据 ---
         int32_t model_type = s_meta.model_type;
         int32_t delta_bits = s_meta.delta_bits;
         int64_t bit_offset_base = s_meta.bit_offset_base;
@@ -430,7 +457,6 @@ __global__ void decompressFullFileFix(
                 output_device[idx] = static_cast<T>(0);
             }
         } else {
-            // 从共享内存缓存中读取模型参数
             double pred_double = fma(s_meta.theta1, static_cast<double>(local_idx), s_meta.theta0);
             
             long long delta = 0;
@@ -448,3 +474,6 @@ __global__ void decompressFullFileFix(
         }
     }
 }
+
+
+#endif // DECOMPRESSION_FULL_DECOMPRESSION_KERNELS_CUH
